@@ -1,0 +1,108 @@
+using System;
+using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Client;
+using Microsoft.Crm.Sdk.Messages;
+using System.Net;
+using System.ServiceModel.Description;
+using Microsoft.Xrm.Sdk.Query;
+using System.Collections.Generic;
+
+namespace CriaEquipesParaCadaCarteira
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            IOrganizationService service = null;
+
+            try
+            {
+
+                #region CONNECTION STRING
+                ClientCredentials clientCredentials = new ClientCredentials();
+                clientCredentials.UserName.UserName = "<user>";
+                clientCredentials.UserName.Password = "<password>";
+
+                // For Dynamics 365 Customer Engagement V9.X, set Security Protocol as TLS12
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                // Get the URL from CRM, Navigate to Settings -> Customizations -> Developer Resources
+                // Copy and Paste Organization Service Endpoint Address URL
+
+                string uri = "https://<url>.api.crm2.dynamics.com/XRMServices/2011/Organization.svc";
+
+                service = (IOrganizationService)new OrganizationServiceProxy(new Uri(uri),
+                 null, clientCredentials, null);
+
+                #endregion
+
+                if (service != null)
+                {
+                    Guid userid = ((WhoAmIResponse)service.Execute(new WhoAmIRequest())).UserId;
+                    EntityReference usuario = new EntityReference("systemuser", userid);
+                    Entity user = service.Retrieve("systemuser", usuario.Id, new ColumnSet("businessunitid"));
+                    EntityReference businessUnit = ((EntityReference)user.Attributes["businessunitid"]);
+                    
+                    if (userid != Guid.Empty)
+                    {
+                        Console.WriteLine("Connection Established Successfully... {0}", uri);
+
+                        EntityCollection tasks = buscaTarefas(service);
+
+                        int count = 1;
+
+                        foreach( var task in tasks.Entities)
+                        {
+                            Console.WriteLine(count + " - " + task["subject"].ToString());
+                            count++;
+
+                            Entity timesheet = new Entity("new_timesheet");
+                            timesheet["new_data"] = DateTime.Now;
+                            timesheet["new_duracao"] = new OptionSetValue(1);
+                            timesheet["new_tarefa"] = task.ToEntityReference();
+                            timesheet["new_tipo_atividade"] = new OptionSetValue(1);
+                            timesheet["new_descricao"] = "Criado via console";
+                            timesheet["new_name"] = "Criado via console";
+                            service.Create(timesheet);
+
+                            Console.WriteLine("         Criado o timesheet para a tarefa: " + task["subject"].ToString());
+
+                        }
+                    }
+
+                    Console.WriteLine("Fim");
+                    Console.ReadKey();
+                }
+                else
+                {
+                    Console.WriteLine("Failed to Established Connection!!!");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Exception caught - " + ex.Message);
+            }
+        }
+
+        public static EntityCollection buscaTarefas(IOrganizationService service)
+        {
+            string query = $@"<fetch version='1.0' output-format='xml-platform' mapping='logical' distinct='false'>
+                              <entity name='task'>
+                                <attribute name='subject' />
+                                <attribute name='statecode' />
+                                <attribute name='prioritycode' />
+                                <attribute name='scheduledend' />
+                                <attribute name='createdby' />
+                                <attribute name='regardingobjectid' />
+                                <attribute name='activityid' />
+                                <order attribute='subject' descending='false' />
+                                <filter type='and'>
+                                  <condition attribute='ownerid' operator='eq-userid' />
+                                  <condition attribute='statecode' operator='eq' value='0' />
+                                </filter>
+                              </entity>
+                            </fetch>";
+
+            return service.RetrieveMultiple(new FetchExpression(query));
+        }
+    }
+}
